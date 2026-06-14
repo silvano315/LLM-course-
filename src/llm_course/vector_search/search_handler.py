@@ -32,7 +32,7 @@ def main(question: str, num_results: int | None):
 
     search_results = handler.search(
             question,
-            boost_dict={"question": 2.0, "section": 0.5},
+            boost_dict=None,
             num_results=num_results
         )
     logger.info(f"Search results for '{question}':")
