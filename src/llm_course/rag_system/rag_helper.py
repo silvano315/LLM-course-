@@ -1,4 +1,6 @@
 import argparse
+import sys
+import time
 
 import ollama
 from loguru import logger
@@ -6,8 +8,9 @@ from pydantic import BaseModel
 
 from llm_course.data_loader.download_data import download_data
 from llm_course.rag_system.constants import INSTRUCTIONS, PROMPT_TEMPLATE
-from llm_course.vector_search.search_handler import SearchHandler
+from llm_course.vector_search.search_handler import ChunkingConfig, SearchHandler
 
+logger.remove()
 
 class RAGResponse(BaseModel):
     answer: str
@@ -49,7 +52,7 @@ class RAGBase:
             lines.append('Content: ' + doc['content'])
             lines.append('')
             logger.info(f"Context built for file {i + 1}: {doc['filename']}")
-            logger.info(f"Content snippet {i + 1}: {doc['content'][:100]}...")
+            logger.debug(f"Content snippet {i + 1}: {doc['content'][:100]}...")
 
         return '\n'.join(lines).strip()
 
@@ -79,19 +82,36 @@ class RAGBase:
 def main():
     parser = argparse.ArgumentParser(description="Search through the LLM Zoomcamp course materials.")
     parser.add_argument("--question", type=str, help="The question to search for Rag system.", default="How does the agentic loop keep calling the model until it stops?")
+    parser.add_argument("--chunking", action="store_true", help="Whether to chunk the documents.")
+    parser.add_argument("--size_chunk", type=int, default=2000, help="The size of each chunk when chunking documents.")
+    parser.add_argument("--step_chunk", type=int, default=1000, help="The step size for chunking documents.")
+    parser.add_argument("--level", type=str, default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).")
 
     args = parser.parse_args()
+
+    logger.remove()
+    level = args.level.upper() if isinstance(args.level, str) else str(args.level)
+    logger.add(
+        sys.stderr,
+        level=level,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    )
 
     question = args.question
 
     logger.info(f"Question: {question}")
 
-    index = SearchHandler(download_data())
+    index = SearchHandler(download_data(), chunking_config=ChunkingConfig(size_chunk=args.size_chunk, step_chunk=args.step_chunk, chunking=args.chunking))
 
     rag_system = RAGBase(index=index, llm_client=ollama.Client(host='http://localhost:11434', timeout=300))
+    time_start = time.time()
+    logger.info(f"RAG system initialized with model: {rag_system.model}")
     response = rag_system.rag(question)
     logger.info(f"Answer: {response.answer}")
     logger.info(f"Input tokens: {response.input_tokens}, Output tokens: {response.output_tokens}")
+    logger.info(f"Total tokens used: {response.input_tokens + response.output_tokens}")
+    time_end = time.time()
+    logger.info(f"Total time taken: {round(time_end - time_start, 2)} seconds")
 
 if __name__ == "__main__":
     main()
